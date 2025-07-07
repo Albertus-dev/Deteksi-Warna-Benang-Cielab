@@ -7,25 +7,28 @@ from deteksi_warna import YarnColorDetector
 from datetime import datetime
 import os
 from PIL import Image
+import time
 
-# Inisialisasi detektor warna
+# Konfigurasi
+st.set_page_config(page_title="🎨 Deteksi Warna Benang", layout="centered")
+st.title("🎥 Deteksi Warna Benang Realtime")
+
+# Load detektor warna
 detector = YarnColorDetector("yarn_colors_database.csv")
+area = detector.sample_area
 
-st.set_page_config(page_title="🎨 Yarn Color Detector", layout="centered")
-st.title("🎥 Yarn Color Detection - Real-time via Webcam")
-
-# Konfigurasi WebRTC untuk Streamlit Cloud
+# Konfigurasi STUN WebRTC
 RTC_CONFIGURATION = RTCConfiguration({
     "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
 })
 
-# Area sampling
-area = detector.sample_area
+# Buffer state hasil deteksi
+if "result_state" not in st.session_state:
+    st.session_state.result_state = None
 
-# Kelas pemroses video
+# Kelas proses frame video
 class VideoProcessor(VideoProcessorBase):
     def __init__(self):
-        self.last_result = None
         self.last_frame = None
 
     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
@@ -33,26 +36,19 @@ class VideoProcessor(VideoProcessorBase):
         img = cv2.flip(img, 1)
         self.last_frame = img.copy()
 
-        # Deteksi warna dominan
         rgb_color, color_name, color_code, confidence = detector.get_dominant_color(img)
 
-        # Simpan hasil deteksi
-        self.last_result = {
+        # Simpan ke session_state
+        st.session_state.result_state = {
             "rgb": rgb_color,
             "color_name": color_name,
             "color_code": color_code,
-            "confidence": confidence
+            "confidence": confidence,
+            "frame": img
         }
 
-        # Gambar area sampling
-        cv2.rectangle(
-            img,
-            (area['x'], area['y']),
-            (area['x'] + area['width'], area['y'] + area['height']),
-            (0, 255, 0), 2
-        )
-
-        # Gambar teks hasil
+        # Tambahkan UI pada frame
+        cv2.rectangle(img, (area['x'], area['y']), (area['x'] + area['width'], area['y'] + area['height']), (0, 255, 0), 2)
         if rgb_color:
             text = f"{color_name} ({color_code}) — {confidence:.1f}%"
         else:
@@ -61,62 +57,54 @@ class VideoProcessor(VideoProcessorBase):
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# Jalankan webcam Streamlit
+# Tampilkan stream webcam
 ctx = webrtc_streamer(
-    key="yarn-color-detector",
+    key="deteksi-warna",
     video_processor_factory=VideoProcessor,
     rtc_configuration=RTC_CONFIGURATION,
     media_stream_constraints={"video": True, "audio": False},
     async_processing=True,
 )
 
-# Tampilkan hasil deteksi
-if ctx.video_processor and ctx.video_processor.last_result:
-    result = ctx.video_processor.last_result
+# Delay singkat agar webcam bisa inisialisasi
+time.sleep(1)
 
-    if result.get("rgb") is not None:
-        st.markdown("### 🎯 Hasil Deteksi Warna")
-        st.write(f"**Nama Warna:** {result['color_name']}")
-        st.write(f"**Kode Warna:** {result['color_code']}")
-        st.write(f"**RGB:** {result['rgb']}")
-        lab = detector.rgb_to_lab(result["rgb"])
-        st.write(f"**CIELAB:** L*={lab[0]:.1f}, a*={lab[1]:.1f}, b*={lab[2]:.1f}")
-        st.write(f"**Confidence:** {result['confidence']:.1f}%")
-        st.markdown(
-            f"<div style='width:100px;height:100px;background-color:rgb{result['rgb']};border:1px solid #000'></div>",
-            unsafe_allow_html=True
-        )
+# Cek hasil dari session_state
+result = st.session_state.get("result_state")
 
-        # Tombol Screenshot & Simpan Deteksi
-        col1, col2 = st.columns([1, 2])
+if result and result["rgb"] is not None:
+    st.markdown("### 🎯 Hasil Deteksi Warna")
+    st.write(f"**Nama Warna:** {result['color_name']}")
+    st.write(f"**Kode Warna:** {result['color_code']}")
+    st.write(f"**RGB:** {result['rgb']}")
+    lab = detector.rgb_to_lab(result["rgb"])
+    st.write(f"**CIELAB:** L*={lab[0]:.1f}, a*={lab[1]:.1f}, b*={lab[2]:.1f}")
+    st.write(f"**Confidence:** {result['confidence']:.1f}%")
+    st.markdown(
+        f"<div style='width:100px;height:100px;background-color:rgb{result['rgb']};border:1px solid #000'></div>",
+        unsafe_allow_html=True
+    )
 
-        with col1:
-            if st.button("📸 Ambil Screenshot"):
-                frame = ctx.video_processor.last_frame
-                if frame is not None:
-                    now = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    screenshot_path = f"results/screenshot_{now}.jpg"
-                    os.makedirs("results", exist_ok=True)
-                    cv2.imwrite(screenshot_path, frame)
-                    st.success(f"📸 Screenshot disimpan: `{screenshot_path}`")
+    col1, col2 = st.columns([1, 2])
 
-                    # Preview gambar
-                    if os.path.exists(screenshot_path):
-                        img = Image.open(screenshot_path)
-                        st.image(img, caption="Screenshot", use_column_width=True)
+    with col1:
+        if st.button("📸 Ambil Screenshot"):
+            now = datetime.now().strftime("%Y%m%d_%H%M%S")
+            screenshot_path = f"results/screenshot_{now}.jpg"
+            os.makedirs("results", exist_ok=True)
+            cv2.imwrite(screenshot_path, result["frame"])
+            st.success(f"📸 Screenshot disimpan: `{screenshot_path}`")
+            st.image(screenshot_path, caption="Hasil Screenshot", use_column_width=True)
 
-        with col2:
-            if st.button("💾 Simpan Hasil Deteksi"):
-                frame = ctx.video_processor.last_frame
-                filepath = detector.save_detection_result(
-                    frame,
-                    result["color_name"],
-                    result["color_code"],
-                    result["rgb"],
-                    result["confidence"]
-                )
-                st.success(f"✅ Hasil deteksi disimpan: `{filepath}`")
-    else:
-        st.info("⚠️ Warna belum terdeteksi — pastikan objek berada di kotak hijau.")
+    with col2:
+        if st.button("💾 Simpan Hasil Deteksi"):
+            filepath = detector.save_detection_result(
+                result["frame"],
+                result["color_name"],
+                result["color_code"],
+                result["rgb"],
+                result["confidence"]
+            )
+            st.success(f"✅ Hasil deteksi disimpan: `{filepath}`")
 else:
-    st.warning("Kamera belum aktif atau belum menghasilkan deteksi.")
+    st.info("⏳ Tunggu kamera mendeteksi warna...")
