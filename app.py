@@ -6,22 +6,23 @@ import cv2
 from deteksi_warna import YarnColorDetector
 from datetime import datetime
 import os
+from PIL import Image
 
-# Inisialisasi detektor
+# Inisialisasi detektor warna
 detector = YarnColorDetector("yarn_colors_database.csv")
 
-st.set_page_config(page_title="Yarn Color Detector", layout="centered")
+st.set_page_config(page_title="🎨 Yarn Color Detector", layout="centered")
 st.title("🎥 Yarn Color Detection - Real-time via Webcam")
 
-# Konfigurasi STUN agar bisa digunakan di Streamlit Cloud
+# Konfigurasi WebRTC
 RTC_CONFIGURATION = RTCConfiguration({
     "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
 })
 
-# Area sampling default
+# Area sampling
 area = detector.sample_area
 
-# Kelas untuk proses video dari webcam
+# Kelas pemrosesan video
 class VideoProcessor(VideoProcessorBase):
     def __init__(self):
         self.last_result = None
@@ -32,8 +33,10 @@ class VideoProcessor(VideoProcessorBase):
         img = cv2.flip(img, 1)
         self.last_frame = img.copy()
 
+        # Deteksi warna dominan
         rgb_color, color_name, color_code, confidence = detector.get_dominant_color(img)
 
+        # Simpan hasil terakhir
         self.last_result = {
             "rgb": rgb_color,
             "color_name": color_name,
@@ -49,13 +52,16 @@ class VideoProcessor(VideoProcessorBase):
             (0, 255, 0), 2
         )
 
-        # Gambar hasil
-        text = f"{color_name} ({color_code}) - {confidence:.1f}%" if rgb_color else "Tidak terdeteksi"
-        cv2.putText(img, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+        # Gambar teks hasil
+        if rgb_color:
+            text = f"{color_name} ({color_code}) - {confidence:.1f}%"
+        else:
+            text = "Tidak terdeteksi"
+        cv2.putText(img, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# Jalankan kamera
+# Jalankan webcam
 ctx = webrtc_streamer(
     key="yarn-color-detector",
     video_processor_factory=VideoProcessor,
@@ -64,7 +70,7 @@ ctx = webrtc_streamer(
     async_processing=True,
 )
 
-# Menampilkan hasil deteksi di UI Streamlit
+# Tampilkan hasil deteksi warna
 if ctx.video_processor:
     result = ctx.video_processor.last_result
 
@@ -81,17 +87,22 @@ if ctx.video_processor:
             unsafe_allow_html=True
         )
 
-        # Kolom tombol: Screenshot & Simpan Deteksi
+        # Tombol-tombol: Screenshot & Simpan Hasil
         col1, col2 = st.columns([1, 2])
 
         with col1:
             if st.button("📸 Ambil Screenshot"):
-                if ctx.video_processor and ctx.video_processor.last_frame is not None:
-                    now = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    screenshot_path = f"results/screenshot_{now}.jpg"
-                    os.makedirs("results", exist_ok=True)
-                    cv2.imwrite(screenshot_path, ctx.video_processor.last_frame)
-                    st.success(f"Screenshot disimpan: `{screenshot_path}`")
+                frame = ctx.video_processor.last_frame
+                now = datetime.now().strftime("%Y%m%d_%H%M%S")
+                screenshot_path = f"results/screenshot_{now}.jpg"
+                os.makedirs("results", exist_ok=True)
+                cv2.imwrite(screenshot_path, frame)
+                st.success(f"📸 Screenshot disimpan: `{screenshot_path}`")
+
+                # Tampilkan preview gambar
+                if os.path.exists(screenshot_path):
+                    img = Image.open(screenshot_path)
+                    st.image(img, caption="Screenshot", use_column_width=True)
 
         with col2:
             if st.button("💾 Simpan Hasil Deteksi"):
@@ -103,7 +114,7 @@ if ctx.video_processor:
                     result["rgb"],
                     result["confidence"]
                 )
-                st.success(f"Hasil deteksi disimpan: `{filepath}`")
+                st.success(f"✅ Hasil deteksi disimpan: `{filepath}`")
     else:
         st.info("Tunggu kamera mendeteksi warna...")
 else:
