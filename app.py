@@ -14,7 +14,7 @@ detector = YarnColorDetector("yarn_colors_database.csv")
 st.set_page_config(page_title="🎨 Yarn Color Detector", layout="centered")
 st.title("🎥 Yarn Color Detection - Real-time via Webcam")
 
-# Konfigurasi WebRTC
+# Konfigurasi WebRTC untuk Streamlit Cloud
 RTC_CONFIGURATION = RTCConfiguration({
     "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
 })
@@ -22,7 +22,7 @@ RTC_CONFIGURATION = RTCConfiguration({
 # Area sampling
 area = detector.sample_area
 
-# Kelas pemrosesan video
+# Kelas pemroses video
 class VideoProcessor(VideoProcessorBase):
     def __init__(self):
         self.last_result = None
@@ -36,7 +36,7 @@ class VideoProcessor(VideoProcessorBase):
         # Deteksi warna dominan
         rgb_color, color_name, color_code, confidence = detector.get_dominant_color(img)
 
-        # Simpan hasil terakhir
+        # Simpan hasil deteksi
         self.last_result = {
             "rgb": rgb_color,
             "color_name": color_name,
@@ -54,14 +54,14 @@ class VideoProcessor(VideoProcessorBase):
 
         # Gambar teks hasil
         if rgb_color:
-            text = f"{color_name} ({color_code}) - {confidence:.1f}%"
+            text = f"{color_name} ({color_code}) — {confidence:.1f}%"
         else:
             text = "Tidak terdeteksi"
-        cv2.putText(img, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(img, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
 
         return av.VideoFrame.from_ndarray(img, format="bgr24")
 
-# Jalankan webcam
+# Jalankan webcam Streamlit
 ctx = webrtc_streamer(
     key="yarn-color-detector",
     video_processor_factory=VideoProcessor,
@@ -70,16 +70,16 @@ ctx = webrtc_streamer(
     async_processing=True,
 )
 
-# Tampilkan hasil deteksi warna
-if ctx.video_processor:
+# Tampilkan hasil deteksi
+if ctx.video_processor and ctx.video_processor.last_result:
     result = ctx.video_processor.last_result
 
-    if result and result["rgb"]:
+    if result.get("rgb") is not None:
         st.markdown("### 🎯 Hasil Deteksi Warna")
         st.write(f"**Nama Warna:** {result['color_name']}")
         st.write(f"**Kode Warna:** {result['color_code']}")
         st.write(f"**RGB:** {result['rgb']}")
-        lab = detector.rgb_to_lab(result['rgb'])
+        lab = detector.rgb_to_lab(result["rgb"])
         st.write(f"**CIELAB:** L*={lab[0]:.1f}, a*={lab[1]:.1f}, b*={lab[2]:.1f}")
         st.write(f"**Confidence:** {result['confidence']:.1f}%")
         st.markdown(
@@ -87,22 +87,23 @@ if ctx.video_processor:
             unsafe_allow_html=True
         )
 
-        # Tombol-tombol: Screenshot & Simpan Hasil
+        # Tombol Screenshot & Simpan Deteksi
         col1, col2 = st.columns([1, 2])
 
         with col1:
             if st.button("📸 Ambil Screenshot"):
                 frame = ctx.video_processor.last_frame
-                now = datetime.now().strftime("%Y%m%d_%H%M%S")
-                screenshot_path = f"results/screenshot_{now}.jpg"
-                os.makedirs("results", exist_ok=True)
-                cv2.imwrite(screenshot_path, frame)
-                st.success(f"📸 Screenshot disimpan: `{screenshot_path}`")
+                if frame is not None:
+                    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    screenshot_path = f"results/screenshot_{now}.jpg"
+                    os.makedirs("results", exist_ok=True)
+                    cv2.imwrite(screenshot_path, frame)
+                    st.success(f"📸 Screenshot disimpan: `{screenshot_path}`")
 
-                # Tampilkan preview gambar
-                if os.path.exists(screenshot_path):
-                    img = Image.open(screenshot_path)
-                    st.image(img, caption="Screenshot", use_column_width=True)
+                    # Preview gambar
+                    if os.path.exists(screenshot_path):
+                        img = Image.open(screenshot_path)
+                        st.image(img, caption="Screenshot", use_column_width=True)
 
         with col2:
             if st.button("💾 Simpan Hasil Deteksi"):
@@ -116,6 +117,6 @@ if ctx.video_processor:
                 )
                 st.success(f"✅ Hasil deteksi disimpan: `{filepath}`")
     else:
-        st.info("Tunggu kamera mendeteksi warna...")
+        st.info("⚠️ Warna belum terdeteksi — pastikan objek berada di kotak hijau.")
 else:
-    st.warning("Kamera belum aktif atau belum dimuat...")
+    st.warning("Kamera belum aktif atau belum menghasilkan deteksi.")
