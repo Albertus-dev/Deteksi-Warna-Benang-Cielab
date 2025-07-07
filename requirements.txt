@@ -1,6 +1,6 @@
 streamlit
 streamlit-webrtc
-numpy
 opencv-python
 scikit-image
 av
+numpy
