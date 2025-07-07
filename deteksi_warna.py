@@ -159,7 +159,7 @@ class YarnColorDetector:
         
         # Konversi ke HSV untuk filtering yang lebih baik
         hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
-        
+
         # Filter berdasarkan brightness dan saturation
         mask = np.ones(hsv.shape[:2], dtype=bool)
         
