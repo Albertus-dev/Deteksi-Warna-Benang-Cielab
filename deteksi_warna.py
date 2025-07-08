@@ -6,14 +6,11 @@ import sys
 from collections import Counter
 from skimage import color
 from datetime import datetime
+import streamlit as st
 
 class YarnColorDetector:
     def __init__(self, csv_file='yarn_colors_database.csv'):
         """Inisialisasi detector dengan database warna dari CSV"""
-        self.cap = cv2.VideoCapture(0)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        
         # Area sampling yang bisa disesuaikan
         self.sample_area = {
             'x': 270,
@@ -22,13 +19,13 @@ class YarnColorDetector:
             'height': 100
         }
         
-        # Load database warna dari CSV
-        self.load_color_database(csv_file)
-        
         # Parameter untuk filtering
         self.brightness_min = 20
         self.brightness_max = 235
         self.saturation_min = 10
+        
+        # Load database warna dari CSV
+        self.load_color_database(csv_file)
         
     def load_color_database(self, csv_file):
         """Memuat database warna dari file CSV - Handle berbagai format CSV"""
@@ -67,7 +64,6 @@ class YarnColorDetector:
                     
                     # Pastikan jumlah kolom sesuai
                     if len(values) != len(header):
-                        print(f"Warning: Baris diabaikan (kolom tidak sesuai): {line}")
                         continue
                     
                     try:
@@ -91,24 +87,15 @@ class YarnColorDetector:
                         self.color_db.append(color_data)
                         
                     except (ValueError, KeyError) as e:
-                        print(f"Warning: Baris diabaikan (error parsing): {line} - {e}")
                         continue
             
             if len(self.color_db) == 0:
                 raise ValueError("Tidak ada data warna yang valid ditemukan di CSV!")
                 
-            print(f"Database warna dimuat dari CSV: {len(self.color_db)} warna")
-            print("Contoh warna yang dimuat:")
-            for i, color in enumerate(self.color_db[:3]):  # Tampilkan 3 warna pertama
-                print(f"  {i+1}. {color['color_name']} - {color['color_code']}")
-            if len(self.color_db) > 3:
-                print(f"  ... dan {len(self.color_db)-3} warna lainnya")
-                
         except Exception as e:
-            print(f"Error loading CSV: {e}")
-            print("Program tidak dapat berjalan tanpa database warna yang valid.")
-            print("Pastikan format CSV sesuai dengan yang diharapkan.")
-            sys.exit("Program dihentikan karena database warna tidak tersedia.")
+            st.error(f"Error loading CSV: {e}")
+            st.error("Pastikan file 'yarn_colors_database.csv' ada dan format sesuai.")
+            st.stop()
     
     def rgb_to_lab(self, rgb):
         """Konversi RGB ke CIELAB dengan handling yang lebih baik"""
@@ -147,13 +134,17 @@ class YarnColorDetector:
                 best_match = color_data
         
         if best_match is not None:
-            confidence = max(0, 100 - min_delta_e * 2)  # Konversi ke confidence score
+            # Konversi Delta E ke confidence score (0-100)
+            confidence = max(0, min(100, 100 - min_delta_e * 1.5))
             return best_match, best_match['color_name'], best_match['color_code'], confidence
         
         return None, "Tidak dikenal", None, 0
     
     def preprocess_sample(self, sample):
         """Preprocessing area sample untuk meningkatkan akurasi"""
+        if sample is None or sample.size == 0:
+            return None, None
+            
         # Gaussian blur untuk mengurangi noise
         blurred = cv2.GaussianBlur(sample, (5, 5), 0)
         
@@ -173,14 +164,27 @@ class YarnColorDetector:
     
     def get_dominant_color(self, image):
         """Mendapatkan warna dominan dengan preprocessing yang lebih baik"""
+        if image is None:
+            return None, "Tidak terdeteksi", None, 0
+            
+        # Pastikan area sampling dalam batas frame
+        h, w = image.shape[:2]
+        x = max(0, min(self.sample_area['x'], w - self.sample_area['width']))
+        y = max(0, min(self.sample_area['y'], h - self.sample_area['height']))
+        width = min(self.sample_area['width'], w - x)
+        height = min(self.sample_area['height'], h - y)
+        
         # Ekstrak area sample
-        sample = image[
-            self.sample_area['y']:self.sample_area['y'] + self.sample_area['height'],
-            self.sample_area['x']:self.sample_area['x'] + self.sample_area['width']
-        ]
+        sample = image[y:y + height, x:x + width]
+        
+        if sample.size == 0:
+            return None, "Tidak terdeteksi", None, 0
         
         # Preprocessing
         processed_sample, mask = self.preprocess_sample(sample)
+        
+        if processed_sample is None or mask is None:
+            return None, "Tidak terdeteksi", None, 0
         
         # Ambil pixel yang valid saja
         valid_pixels = processed_sample[mask]
@@ -204,191 +208,23 @@ class YarnColorDetector:
         
         return dominant_color_rgb, color_name, color_code, confidence
     
-    def draw_interface(self, frame, rgb_color, color_name, color_code, confidence):
-        """Menggambar interface dengan informasi yang lebih lengkap"""
-        # Background untuk informasi
-        info_height = 140
-        cv2.rectangle(frame, (10, 10), (450, 10 + info_height), (0, 0, 0), -1)
-        cv2.rectangle(frame, (10, 10), (450, 10 + info_height), (255, 255, 255), 2)
-        
-        if rgb_color:
-            # Hitung LAB values
-            lab = self.rgb_to_lab(rgb_color)
+    def get_color_analysis(self, rgb_color):
+        """Mendapatkan analisis lengkap warna"""
+        if rgb_color is None:
+            return None
             
-            # Informasi teks
-            info_lines = [
-                f"Warna: {color_name}",
-                f"Kode: {color_code if color_code else 'N/A'}",
-                f"RGB: ({rgb_color[0]}, {rgb_color[1]}, {rgb_color[2]})",
-                f"LAB: L*={lab[0]:.1f}, a*={lab[1]:.1f}, b*={lab[2]:.1f}",
-                f"Confidence: {confidence:.1f}%"
-            ]
-            
-            # Gambar teks
-            for i, text in enumerate(info_lines):
-                y_pos = 30 + i * 22
-                cv2.putText(frame, text, (20, y_pos), 
-                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-            
-            # Color box
-            color_box_bgr = (rgb_color[2], rgb_color[1], rgb_color[0])  # RGB to BGR
-            cv2.rectangle(frame, (460, 10), (560, 110), color_box_bgr, -1)
-            cv2.rectangle(frame, (460, 10), (560, 110), (255, 255, 255), 2)
-            
-            # Confidence bar
-            bar_width = int((confidence / 100) * 100)
-            cv2.rectangle(frame, (460, 120), (460 + bar_width, 140), (0, 255, 0), -1)
-            cv2.rectangle(frame, (460, 120), (560, 140), (255, 255, 255), 2)
-            cv2.putText(frame, f"{confidence:.0f}%", (570, 135), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+        analysis = {
+            'rgb': rgb_color,
+            'hex': f"#{rgb_color[0]:02x}{rgb_color[1]:02x}{rgb_color[2]:02x}",
+            'lab': self.rgb_to_lab(rgb_color),
+            'hsv': None,
+            'category': None,
+            'similar_colors': []
+        }
         
-        # Sampling area
-        cv2.rectangle(
-            frame,
-            (self.sample_area['x'], self.sample_area['y']),
-            (self.sample_area['x'] + self.sample_area['width'], 
-             self.sample_area['y'] + self.sample_area['height']),
-            (0, 0, 0), 2
-        )
+        # Konversi ke HSV
+        rgb_array = np.uint8([[rgb_color]])
+        hsv = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2HSV)[0][0]
+        analysis['hsv'] = (int(hsv[0]), int(hsv[1]), int(hsv[2]))
         
-        # Instructions
-        instructions = [
-            "Letakkan yarn di area hijau",
-            "Q: Keluar | S: Screenshot | R: Reset area"
-        ]
-        
-        for i, instruction in enumerate(instructions):
-            y_pos = frame.shape[0] - 40 + i * 20
-            cv2.putText(frame, instruction, (10, y_pos),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-    
-    def save_detection_result(self, frame, color_name, color_code, rgb_color, confidence):
-        """Menyimpan hasil deteksi"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"yarn_detection_{color_name.replace(' ', '_')}_{timestamp}.jpg"
-        
-        # Buat folder results jika belum ada
-        os.makedirs("results", exist_ok=True)
-        filepath = os.path.join("results", filename)
-        
-        cv2.imwrite(filepath, frame)
-        
-        # Simpan juga data ke CSV log
-        log_file = os.path.join("results", "detection_log.csv")
-        log_exists = os.path.exists(log_file)
-        
-        with open(log_file, 'a', newline='', encoding='utf-8') as csvfile:
-            fieldnames = ['timestamp', 'color_name', 'color_code', 'rgb_r', 'rgb_g', 'rgb_b', 'confidence', 'filename']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            
-            if not log_exists:
-                writer.writeheader()
-            
-            writer.writerow({
-                'timestamp': timestamp,
-                'color_name': color_name,
-                'color_code': color_code,
-                'rgb_r': rgb_color[0] if rgb_color else 0,
-                'rgb_g': rgb_color[1] if rgb_color else 0,
-                'rgb_b': rgb_color[2] if rgb_color else 0,
-                'confidence': confidence,
-                'filename': filename
-            })
-        
-        print(f"Hasil disimpan: {filepath}")
-        return filepath
-    
-    def run(self):
-        """Menjalankan deteksi warna yarn"""
-        print("=== Program Deteksi Warna Yarn dengan CIELAB ===")
-        print(f"Database: {len(self.color_db)} warna dimuat")
-        print("Kontrol:")
-        print("  Q: Keluar")
-        print("  S: Screenshot & simpan hasil")
-        print("  R: Reset posisi area sampling")
-        print("  +/-: Adjust ukuran area sampling")
-        print("=" * 50)
-        
-        while True:
-            ret, frame = self.cap.read()
-            if not ret:
-                print("Gagal mengakses kamera")
-                break
-            
-            # Flip horizontal untuk mirror effect
-            frame = cv2.flip(frame, 1)
-            
-            # Deteksi warna
-            rgb_color, color_name, color_code, confidence = self.get_dominant_color(frame)
-            
-            # Gambar interface
-            self.draw_interface(frame, rgb_color, color_name, color_code, confidence)
-            
-            # Tampilkan frame
-            cv2.imshow('Yarn Color Detector - CIELAB Database', frame)
-            
-            # Handle keyboard input
-            key = cv2.waitKey(1) & 0xFF
-            
-            if key == ord('q') or key == ord('Q'):
-                break
-            elif key == ord('s') or key == ord('S'):
-                if rgb_color:
-                    self.save_detection_result(frame, color_name, color_code, rgb_color, confidence)
-                else:
-                    print("Tidak ada warna yang terdeteksi untuk disimpan")
-            elif key == ord('r') or key == ord('R'):
-                # Reset posisi area sampling ke tengah
-                self.sample_area['x'] = (frame.shape[1] - self.sample_area['width']) // 2
-                self.sample_area['y'] = (frame.shape[0] - self.sample_area['height']) // 2
-                print("Area sampling direset ke tengah")
-            elif key == ord('+') or key == ord('='):
-                # Perbesar area sampling
-                if self.sample_area['width'] < 200:
-                    self.sample_area['width'] += 10
-                    self.sample_area['height'] += 10
-                    print(f"Area sampling: {self.sample_area['width']}x{self.sample_area['height']}")
-            elif key == ord('-'):
-                # Perkecil area sampling
-                if self.sample_area['width'] > 50:
-                    self.sample_area['width'] -= 10
-                    self.sample_area['height'] -= 10
-                    print(f"Area sampling: {self.sample_area['width']}x{self.sample_area['height']}")
-        
-        self.cleanup()
-    
-    def cleanup(self):
-        """Membersihkan resources"""
-        self.cap.release()
-        cv2.destroyAllWindows()
-        print("Program selesai")
-
-def main():
-    """Fungsi utama - dengan validasi CSV wajib"""
-    try:
-        csv_file = 'yarn_colors_database.csv'
-        
-        # Validasi file CSV WAJIB ada
-        if not os.path.exists(csv_file):
-            print(f"ERROR: File {csv_file} tidak ditemukan!")
-            print("File CSV database warna WAJIB ada untuk menjalankan program.")
-            print(f"Pastikan file '{csv_file}' ada di folder yang sama dengan program ini.")
-            return
-        
-        # Buat detector dan jalankan
-        detector = YarnColorDetector(csv_file)
-        detector.run()
-        
-    except KeyboardInterrupt:
-        print("\nProgram dihentikan oleh user")
-    except FileNotFoundError:
-        print("File database warna tidak ditemukan!")
-    except Exception as e:
-        print(f"Error: {e}")
-        print("Pastikan:")
-        print("1. Kamera terhubung dengan baik")
-        print("2. Semua library sudah terinstall")
-        print("3. File CSV 'yarn_colors_database.csv' ada dan valid")
-
-if __name__ == "__main__":
-    main()
+        # Cari warna terdekat untuk mendapatkan kategori
