@@ -8,7 +8,7 @@ import av
 import os
 import threading
 
-st.set_page_config(page_title="Deteksi Warna Benang", layout="centered")
+st.set_page_config(page_title="Deteksi Warna Benang", layout="wide")
 st.title("🎨 Deteksi Warna Benang Sederhana")
 
 # Konfigurasi WebRTC
@@ -64,12 +64,16 @@ class VideoProcessor(VideoProcessorBase):
                 # Update session state dengan thread lock
                 with lock:
                     if rgb_color is not None:
+                        # Dapatkan analisis warna lengkap
+                        analysis = self.detector.get_color_analysis(rgb_color)
+                        
                         st.session_state.hasil_deteksi = {
                             "rgb": rgb_color,
                             "nama": color_name,
                             "kode": color_code,
                             "confidence": confidence,
-                            "waktu": datetime.now().strftime("%H:%M:%S")
+                            "waktu": datetime.now().strftime("%H:%M:%S"),
+                            "analysis": analysis
                         }
                         st.session_state.last_frame = img.copy()
             
@@ -98,6 +102,12 @@ class VideoProcessor(VideoProcessorBase):
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
                 cv2.putText(img, text, (10, 30), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 1)
+                
+                # Tampilkan kode warna
+                cv2.putText(img, f"Code: {hasil['kode']}", (10, 60), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+                cv2.putText(img, f"Code: {hasil['kode']}", (10, 60), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
             
             return av.VideoFrame.from_ndarray(img, format="bgr24")
             
@@ -156,50 +166,151 @@ hasil_placeholder = st.empty()
 # Update hasil secara real-time
 if st.session_state.hasil_deteksi:
     hasil = st.session_state.hasil_deteksi
+    analysis = hasil.get('analysis', {})
     
     with hasil_placeholder.container():
-        # Tampilkan dalam format yang lebih menarik
-        col1, col2, col3 = st.columns([1, 1, 1])
+        # Tampilkan dalam format yang lebih menarik dengan informasi lengkap
+        col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
         
         with col1:
+            st.markdown("### 🎯 Identifikasi")
             st.metric("Nama Warna", hasil['nama'])
             st.metric("Confidence", f"{hasil['confidence']:.1f}%")
-        
-        with col2:
-            st.metric("Kode Warna", hasil['kode'])
             st.metric("Waktu Deteksi", hasil['waktu'])
         
-        with col3:
-            # Tampilkan warna
+        with col2:
+            st.markdown("### 🔢 Kode & RGB")
+            st.metric("Kode Warna", hasil['kode'])
             rgb = hasil['rgb']
+            st.write(f"**RGB:** {rgb[0]}, {rgb[1]}, {rgb[2]}")
+            if analysis and 'hex' in analysis:
+                st.write(f"**HEX:** {analysis['hex']}")
+        
+        with col3:
+            st.markdown("### 🌈 CIELAB")
+            if analysis and 'lab' in analysis:
+                lab = analysis['lab']
+                st.write(f"**L*:** {lab[0]:.1f}")
+                st.write(f"**a*:** {lab[1]:.1f}")
+                st.write(f"**b*:** {lab[2]:.1f}")
+            else:
+                st.write("Data LAB tidak tersedia")
+            
+            # Tambahan HSV jika ada
+            if analysis and 'hsv' in analysis:
+                hsv = analysis['hsv']
+                st.write(f"**HSV:** {hsv[0]}, {hsv[1]}, {hsv[2]}")
+        
+        with col4:
+            st.markdown("### 🎨 Preview")
+            # Tampilkan warna
             st.markdown(f"""
             <div style='
-                width: 100px; 
-                height: 100px; 
+                width: 120px; 
+                height: 120px; 
                 background-color: rgb{rgb}; 
-                border: 2px solid #333; 
+                border: 3px solid #333; 
                 border-radius: 10px;
                 margin: 10px auto;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.3);
             '></div>
             """, unsafe_allow_html=True)
             
-            st.write(f"**RGB:** {rgb}")
+            # Kategori warna
+            if analysis and 'category' in analysis:
+                st.write(f"**Kategori:** {analysis['category']}")
+        
+        # Informasi tambahan dalam expander
+        with st.expander("🔍 Informasi Detail"):
+            col1, col2 = st.columns([1, 1])
+            
+            with col1:
+                st.markdown("#### 📋 Spesifikasi Warna")
+                st.write(f"**Nama:** {hasil['nama']}")
+                st.write(f"**Kode:** {hasil['kode']}")
+                st.write(f"**RGB:** ({rgb[0]}, {rgb[1]}, {rgb[2]})")
+                if analysis and 'hex' in analysis:
+                    st.write(f"**HEX:** {analysis['hex']}")
+                if analysis and 'lab' in analysis:
+                    lab = analysis['lab']
+                    st.write(f"**CIELAB:** L*={lab[0]:.1f}, a*={lab[1]:.1f}, b*={lab[2]:.1f}")
+                if analysis and 'hsv' in analysis:
+                    hsv = analysis['hsv']
+                    st.write(f"**HSV:** H={hsv[0]}, S={hsv[1]}, V={hsv[2]}")
+            
+            with col2:
+                st.markdown("#### 🎭 Warna Serupa")
+                if analysis and 'similar_colors' in analysis:
+                    similar = analysis['similar_colors'][:3]  # Ambil 3 teratas
+                    if similar:
+                        for i, color in enumerate(similar):
+                            st.write(f"**{i+1}.** {color['name']} ({color['code']}) - ΔE: {color['delta_e']:.1f}")
+                    else:
+                        st.write("Tidak ada warna serupa ditemukan")
+                else:
+                    st.write("Data warna serupa tidak tersedia")
         
         # Tombol aksi
-        col1, col2 = st.columns([1, 1])
+        col1, col2, col3 = st.columns([1, 1, 1])
         
         with col1:
             if st.button("💾 Simpan Hasil", key="save_result"):
                 if st.session_state.last_frame is not None:
                     try:
                         os.makedirs("results", exist_ok=True)
-                        filename = f"results/detection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
-                        cv2.imwrite(filename, st.session_state.last_frame)
-                        st.success(f"✅ Disimpan: {filename}")
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        
+                        # Simpan gambar
+                        img_filename = f"results/detection_{timestamp}.jpg"
+                        cv2.imwrite(img_filename, st.session_state.last_frame)
+                        
+                        # Simpan info detail
+                        txt_filename = f"results/detection_{timestamp}.txt"
+                        with open(txt_filename, 'w', encoding='utf-8') as f:
+                            f.write("=== HASIL DETEKSI WARNA BENANG ===\n")
+                            f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                            f.write(f"Nama Warna: {hasil['nama']}\n")
+                            f.write(f"Kode Warna: {hasil['kode']}\n")
+                            f.write(f"RGB: ({rgb[0]}, {rgb[1]}, {rgb[2]})\n")
+                            if analysis and 'hex' in analysis:
+                                f.write(f"HEX: {analysis['hex']}\n")
+                            if analysis and 'lab' in analysis:
+                                lab = analysis['lab']
+                                f.write(f"CIELAB: L*={lab[0]:.1f}, a*={lab[1]:.1f}, b*={lab[2]:.1f}\n")
+                            if analysis and 'hsv' in analysis:
+                                hsv = analysis['hsv']
+                                f.write(f"HSV: H={hsv[0]}, S={hsv[1]}, V={hsv[2]}\n")
+                            f.write(f"Confidence: {hasil['confidence']:.1f}%\n")
+                            f.write(f"Kategori: {analysis.get('category', 'N/A')}\n")
+                            f.write(f"File Gambar: {img_filename}\n")
+                            
+                            # Warna serupa
+                            if analysis and 'similar_colors' in analysis:
+                                f.write("\n=== WARNA SERUPA ===\n")
+                                for i, color in enumerate(analysis['similar_colors'][:5]):
+                                    f.write(f"{i+1}. {color['name']} ({color['code']}) - ΔE: {color['delta_e']:.1f}\n")
+                        
+                        st.success(f"✅ Hasil disimpan:")
+                        st.write(f"- Gambar: {img_filename}")
+                        st.write(f"- Detail: {txt_filename}")
+                        
                     except Exception as e:
                         st.error(f"❌ Gagal menyimpan: {e}")
         
         with col2:
+            if st.button("📋 Copy Info", key="copy_info"):
+                info_text = f"Warna: {hasil['nama']}\nKode: {hasil['kode']}\nRGB: ({rgb[0]}, {rgb[1]}, {rgb[2]})\n"
+                if analysis and 'hex' in analysis:
+                    info_text += f"HEX: {analysis['hex']}\n"
+                if analysis and 'lab' in analysis:
+                    lab = analysis['lab']
+                    info_text += f"CIELAB: L*={lab[0]:.1f}, a*={lab[1]:.1f}, b*={lab[2]:.1f}\n"
+                info_text += f"Confidence: {hasil['confidence']:.1f}%"
+                
+                st.code(info_text, language="text")
+                st.success("📋 Info siap di-copy!")
+        
+        with col3:
             if st.button("🔄 Reset", key="reset_result"):
                 st.session_state.hasil_deteksi = None
                 st.session_state.last_frame = None
@@ -219,4 +330,4 @@ else:
 
 # Footer
 st.markdown("---")
-st.markdown("🎨 **Yarn Color Detector** - Deteksi warna benang secara real-time")
+st.markdown("🎨 **Yarn Color Detector** - Deteksi warna benang secara real-time dengan analisis lengkap")
