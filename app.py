@@ -1,286 +1,128 @@
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, RTCConfiguration
-import av
-import numpy as np
 import cv2
+import numpy as np
 from datetime import datetime
 from deteksi_warna import YarnColorDetector
+import av
 import os
-from PIL import Image
-import csv
+import threading
 
-# Konfigurasi halaman
-st.set_page_config(page_title="Deteksi Warna Benang", layout="wide")
+st.set_page_config(page_title="Deteksi Warna Benang", layout="centered")
+st.title("🎨 Deteksi Warna Benang Sederhana")
 
-# CSS untuk styling
-st.markdown("""
-<style>
-    .main-header {
-        text-align: center;
-        padding: 1rem;
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border-radius: 10px;
-        margin-bottom: 2rem;
-    }
-    .info-box {
-        background: #f0f2f6;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-        border-left: 4px solid #667eea;
-    }
-    .color-display {
-        border: 2px solid #000;
-        border-radius: 10px;
-        text-align: center;
-        font-weight: bold;
-        color: white;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.7);
-    }
-    .control-panel {
-        background: #ffffff;
-        padding: 1.5rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        margin: 1rem 0;
-    }
-    .stats-container {
-        display: flex;
-        justify-content: space-around;
-        margin: 1rem 0;
-    }
-    .stat-item {
-        text-align: center;
-        padding: 1rem;
-        background: #f8f9fa;
-        border-radius: 8px;
-        flex: 1;
-        margin: 0 0.5rem;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Header
-st.markdown('<div class="main-header"><h1>🎥 Deteksi Warna Benang dengan CIELAB</h1><p>Sistem deteksi warna benang menggunakan teknologi computer vision dan database warna lengkap</p></div>', unsafe_allow_html=True)
-
-# Load detector
-@st.cache_resource
-def load_detector():
-    return YarnColorDetector("yarn_colors_database.csv")
-
-detector = load_detector()
-
-# Konfigurasi STUN untuk Streamlit Cloud
+# Konfigurasi WebRTC
 RTC_CONFIGURATION = RTCConfiguration({
     "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
 })
 
-# Initialize session state
+# Load detektor
+@st.cache_resource
+def load_detector():
+    try:
+        detector = YarnColorDetector("yarn_colors_database.csv")
+        st.success(f"Database warna berhasil dimuat: {len(detector.color_db)} warna")
+        return detector
+    except Exception as e:
+        st.error(f"Gagal memuat detector: {e}")
+        return None
+
+detector = load_detector()
+
+if detector is None:
+    st.stop()
+
+# Thread lock untuk sinkronisasi
+lock = threading.Lock()
+
+# Session state untuk menyimpan hasil
 if "hasil_deteksi" not in st.session_state:
     st.session_state.hasil_deteksi = None
-if "frame_terakhir" not in st.session_state:
-    st.session_state.frame_terakhir = None
-if "detection_history" not in st.session_state:
-    st.session_state.detection_history = []
-if "sampling_area" not in st.session_state:
-    st.session_state.sampling_area = detector.sample_area.copy()
-if "filter_settings" not in st.session_state:
-    st.session_state.filter_settings = {
-        "brightness_min": detector.brightness_min,
-        "brightness_max": detector.brightness_max,
-        "saturation_min": detector.saturation_min
-    }
+if "last_frame" not in st.session_state:
+    st.session_state.last_frame = None
 
-# Sidebar untuk kontrol
-with st.sidebar:
-    st.header("⚙️ Kontrol & Pengaturan")
-    
-    # Area sampling controls
-    st.subheader("📏 Area Sampling")
-    col1, col2 = st.columns(2)
-    with col1:
-        new_width = st.slider("Lebar", 50, 200, st.session_state.sampling_area['width'], 10)
-        new_x = st.slider("Posisi X", 0, 640-new_width, st.session_state.sampling_area['x'], 10)
-    with col2:
-        new_height = st.slider("Tinggi", 50, 200, st.session_state.sampling_area['height'], 10)
-        new_y = st.slider("Posisi Y", 0, 480-new_height, st.session_state.sampling_area['y'], 10)
-    
-    # Update sampling area
-    st.session_state.sampling_area = {
-        'x': new_x, 'y': new_y, 'width': new_width, 'height': new_height
-    }
-    detector.sample_area = st.session_state.sampling_area
-    
-    if st.button("🎯 Reset ke Tengah"):
-        st.session_state.sampling_area = {
-            'x': (640 - 100) // 2,
-            'y': (480 - 100) // 2,
-            'width': 100,
-            'height': 100
-        }
-        detector.sample_area = st.session_state.sampling_area
-        st.rerun()
-    
-    # Filter settings
-    st.subheader("🎛️ Filter Warna")
-    brightness_min = st.slider("Brightness Min", 0, 100, st.session_state.filter_settings['brightness_min'])
-    brightness_max = st.slider("Brightness Max", 100, 255, st.session_state.filter_settings['brightness_max'])
-    saturation_min = st.slider("Saturation Min", 0, 50, st.session_state.filter_settings['saturation_min'])
-    
-    # Update filter settings
-    st.session_state.filter_settings = {
-        "brightness_min": brightness_min,
-        "brightness_max": brightness_max,
-        "saturation_min": saturation_min
-    }
-    detector.brightness_min = brightness_min
-    detector.brightness_max = brightness_max
-    detector.saturation_min = saturation_min
-    
-    # Database info
-    st.subheader("📊 Database Info")
-    st.info(f"Total warna: {len(detector.color_db)}")
-    
-    # Categories
-    categories = {}
-    for color in detector.color_db:
-        cat = color['category']
-        categories[cat] = categories.get(cat, 0) + 1
-    
-    st.write("**Kategori Warna:**")
-    for cat, count in categories.items():
-        st.write(f"• {cat}: {count} warna")
-
-# Video processor class
+# Video Processor yang lebih robust
 class VideoProcessor(VideoProcessorBase):
     def __init__(self):
-        self.result = None
-        self.frame = None
+        self.detector = detector
         self.frame_count = 0
-
+        
     def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-        self.frame_count += 1
-        img = frame.to_ndarray(format="bgr24")
-        img = cv2.flip(img, 1)
-        self.frame = img.copy()
-
-        # Update detector settings
-        detector.sample_area = st.session_state.sampling_area
-        detector.brightness_min = st.session_state.filter_settings['brightness_min']
-        detector.brightness_max = st.session_state.filter_settings['brightness_max']
-        detector.saturation_min = st.session_state.filter_settings['saturation_min']
-
-        # Detect color
-        rgb, nama, kode, confidence = detector.get_dominant_color(img)
-
-        # Save detection result
-        if rgb is not None:
-            st.session_state.hasil_deteksi = {
-                "rgb": rgb,
-                "nama": nama,
-                "kode": kode,
-                "confidence": confidence,
-                "timestamp": datetime.now()
-            }
-            st.session_state.frame_terakhir = self.frame.copy()
+        try:
+            # Konversi frame ke numpy array
+            img = frame.to_ndarray(format="bgr24")
             
-            # Add to history (limit to last 10)
-            if len(st.session_state.detection_history) >= 10:
-                st.session_state.detection_history.pop(0)
-            st.session_state.detection_history.append(st.session_state.hasil_deteksi.copy())
+            # Flip horizontal untuk mirror effect
+            img = cv2.flip(img, 1)
+            
+            # Proses setiap 5 frame untuk mengurangi beban
+            self.frame_count += 1
+            if self.frame_count % 5 == 0:
+                # Deteksi warna
+                rgb_color, color_name, color_code, confidence = self.detector.get_dominant_color(img)
+                
+                # Update session state dengan thread lock
+                with lock:
+                    if rgb_color is not None:
+                        st.session_state.hasil_deteksi = {
+                            "rgb": rgb_color,
+                            "nama": color_name,
+                            "kode": color_code,
+                            "confidence": confidence,
+                            "waktu": datetime.now().strftime("%H:%M:%S")
+                        }
+                        st.session_state.last_frame = img.copy()
+            
+            # Gambar area sampling
+            area = self.detector.sample_area
+            h, w = img.shape[:2]
+            
+            # Pastikan area sampling dalam batas frame
+            x = max(0, min(area['x'], w - area['width']))
+            y = max(0, min(area['y'], h - area['height']))
+            width = min(area['width'], w - x)
+            height = min(area['height'], h - y)
+            
+            # Gambar kotak hijau untuk area sampling
+            cv2.rectangle(img, (x, y), (x + width, y + height), (0, 255, 0), 2)
+            
+            # Tambahkan text info
+            cv2.putText(img, "Area Deteksi", (x, y-10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            
+            # Tampilkan hasil deteksi di video jika ada
+            if st.session_state.hasil_deteksi:
+                hasil = st.session_state.hasil_deteksi
+                text = f"{hasil['nama']} ({hasil['confidence']:.1f}%)"
+                cv2.putText(img, text, (10, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                cv2.putText(img, text, (10, 30), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 1)
+            
+            return av.VideoFrame.from_ndarray(img, format="bgr24")
+            
+        except Exception as e:
+            st.error(f"Error dalam video processing: {e}")
+            return frame
 
-        # Draw interface on video
-        self.draw_enhanced_interface(img, rgb, nama, kode, confidence)
-        
-        return av.VideoFrame.from_ndarray(img, format="bgr24")
-    
-    def draw_enhanced_interface(self, frame, rgb_color, color_name, color_code, confidence):
-        """Enhanced interface drawing with more information"""
-        # Background untuk informasi
-        info_height = 160
-        cv2.rectangle(frame, (10, 10), (500, 10 + info_height), (0, 0, 0), -1)
-        cv2.rectangle(frame, (10, 10), (500, 10 + info_height), (255, 255, 255), 2)
-        
-        if rgb_color:
-            # Hitung LAB values
-            lab = detector.rgb_to_lab(rgb_color)
-            
-            # Informasi teks
-            info_lines = [
-                f"Warna: {color_name}",
-                f"Kode: {color_code if color_code else 'N/A'}",
-                f"RGB: ({rgb_color[0]}, {rgb_color[1]}, {rgb_color[2]})",
-                f"LAB: L*={lab[0]:.1f}, a*={lab[1]:.1f}, b*={lab[2]:.1f}",
-                f"Confidence: {confidence:.1f}%",
-                f"Area: {detector.sample_area['width']}x{detector.sample_area['height']}",
-                f"Filter: B({detector.brightness_min}-{detector.brightness_max}) S({detector.saturation_min})"
-            ]
-            
-            # Gambar teks
-            for i, text in enumerate(info_lines):
-                y_pos = 30 + i * 20
-                cv2.putText(frame, text, (20, y_pos), 
-                          cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
-            
-            # Color box
-            color_box_bgr = (rgb_color[2], rgb_color[1], rgb_color[0])  # RGB to BGR
-            cv2.rectangle(frame, (510, 10), (610, 110), color_box_bgr, -1)
-            cv2.rectangle(frame, (510, 10), (610, 110), (255, 255, 255), 2)
-            
-            # Confidence bar
-            bar_width = int((confidence / 100) * 100)
-            cv2.rectangle(frame, (510, 120), (510 + bar_width, 140), (0, 255, 0), -1)
-            cv2.rectangle(frame, (510, 120), (610, 140), (255, 255, 255), 2)
-            cv2.putText(frame, f"{confidence:.0f}%", (620, 135), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-        else:
-            cv2.putText(frame, "Tidak ada warna terdeteksi", (20, 50), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-        
-        # Sampling area with enhanced visualization
-        area = detector.sample_area
-        # Main rectangle
-        cv2.rectangle(frame, (area['x'], area['y']), 
-                     (area['x'] + area['width'], area['y'] + area['height']), 
-                     (0, 255, 0), 2)
-        
-        # Corner markers
-        corner_size = 10
-        corners = [
-            (area['x'], area['y']),
-            (area['x'] + area['width'], area['y']),
-            (area['x'], area['y'] + area['height']),
-            (area['x'] + area['width'], area['y'] + area['height'])
-        ]
-        
-        for corner in corners:
-            cv2.circle(frame, corner, corner_size, (0, 255, 0), -1)
-        
-        # Center cross
-        center_x = area['x'] + area['width'] // 2
-        center_y = area['y'] + area['height'] // 2
-        cv2.line(frame, (center_x - 10, center_y), (center_x + 10, center_y), (0, 255, 0), 2)
-        cv2.line(frame, (center_x, center_y - 10), (center_x, center_y + 10), (0, 255, 0), 2)
-        
-        # Instructions
-        instructions = [
-            "Letakkan benang di area hijau untuk deteksi",
-            "Gunakan sidebar untuk mengatur area dan filter"
-        ]
-        
-        for i, instruction in enumerate(instructions):
-            y_pos = frame.shape[0] - 30 + i * 15
-            cv2.putText(frame, instruction, (10, y_pos),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+# Tampilkan instruksi
+st.markdown("""
+### Instruksi Penggunaan:
+1. **Klik tombol "START"** untuk memulai kamera
+2. **Arahkan benang** ke dalam kotak hijau di layar
+3. **Tunggu beberapa detik** untuk hasil deteksi muncul
+4. **Hasil akan tampil** di bagian bawah secara otomatis
 
-# Main layout
+---
+""")
+
+# Kolom untuk layout
 col1, col2 = st.columns([2, 1])
 
 with col1:
-    st.subheader("📹 Live Detection")
+    st.subheader("📹 Kamera")
     
-    # WebRTC streamer
+    # WebRTC Streamer
     ctx = webrtc_streamer(
         key="yarn-color-detector",
         video_processor_factory=VideoProcessor,
@@ -290,134 +132,91 @@ with col1:
     )
 
 with col2:
-    st.subheader("🎯 Hasil Deteksi")
+    st.subheader("⚙️ Pengaturan")
     
-    # Current detection results
-    hasil = st.session_state.get("hasil_deteksi", None)
+    # Pengaturan area sampling
+    if st.checkbox("Sesuaikan Area Sampling"):
+        detector.sample_area['x'] = st.slider("X Position", 0, 500, detector.sample_area['x'])
+        detector.sample_area['y'] = st.slider("Y Position", 0, 400, detector.sample_area['y'])
+        detector.sample_area['width'] = st.slider("Width", 50, 200, detector.sample_area['width'])
+        detector.sample_area['height'] = st.slider("Height", 50, 200, detector.sample_area['height'])
     
-    if hasil and hasil["rgb"] is not None:
-        # Color display
-        rgb_str = f"rgb({hasil['rgb'][0]}, {hasil['rgb'][1]}, {hasil['rgb'][2]})"
-        st.markdown(f"""
-        <div class="color-display" style="background-color: {rgb_str}; height: 100px; margin: 10px 0;">
-            <h3 style="margin: 0; padding-top: 35px;">{hasil['nama']}</h3>
-        </div>
-        """, unsafe_allow_html=True)
+    # Pengaturan sensitivitas
+    if st.checkbox("Pengaturan Lanjutan"):
+        detector.brightness_min = st.slider("Brightness Min", 0, 100, detector.brightness_min)
+        detector.brightness_max = st.slider("Brightness Max", 100, 255, detector.brightness_max)
+        detector.saturation_min = st.slider("Saturation Min", 0, 100, detector.saturation_min)
+
+# Hasil deteksi
+st.header("📊 Hasil Deteksi")
+
+# Placeholder untuk hasil
+hasil_placeholder = st.empty()
+
+# Update hasil secara real-time
+if st.session_state.hasil_deteksi:
+    hasil = st.session_state.hasil_deteksi
+    
+    with hasil_placeholder.container():
+        # Tampilkan dalam format yang lebih menarik
+        col1, col2, col3 = st.columns([1, 1, 1])
         
-        # Detailed information
-        with st.container():
-            st.write("**📋 Detail Informasi:**")
-            st.write(f"🏷️ **Nama:** {hasil['nama']}")
-            st.write(f"🎨 **Kode:** {hasil['kode']}")
-            st.write(f"🔴 **RGB:** {hasil['rgb']}")
+        with col1:
+            st.metric("Nama Warna", hasil['nama'])
+            st.metric("Confidence", f"{hasil['confidence']:.1f}%")
+        
+        with col2:
+            st.metric("Kode Warna", hasil['kode'])
+            st.metric("Waktu Deteksi", hasil['waktu'])
+        
+        with col3:
+            # Tampilkan warna
+            rgb = hasil['rgb']
+            st.markdown(f"""
+            <div style='
+                width: 100px; 
+                height: 100px; 
+                background-color: rgb{rgb}; 
+                border: 2px solid #333; 
+                border-radius: 10px;
+                margin: 10px auto;
+            '></div>
+            """, unsafe_allow_html=True)
             
-            lab = detector.rgb_to_lab(hasil["rgb"])
-            st.write(f"🔬 **CIELAB:** L*={lab[0]:.1f}, a*={lab[1]:.1f}, b*={lab[2]:.1f}")
-            st.write(f"📊 **Confidence:** {hasil['confidence']:.1f}%")
-            
-            # Confidence bar
-            confidence_pct = hasil['confidence'] / 100
-            st.progress(confidence_pct)
-            
-            # Timestamp
-            if 'timestamp' in hasil:
-                st.write(f"🕐 **Waktu:** {hasil['timestamp'].strftime('%H:%M:%S')}")
+            st.write(f"**RGB:** {rgb}")
         
-        # Action buttons
-        st.subheader("🔧 Aksi")
+        # Tombol aksi
+        col1, col2 = st.columns([1, 1])
         
-        col_btn1, col_btn2 = st.columns(2)
+        with col1:
+            if st.button("💾 Simpan Hasil", key="save_result"):
+                if st.session_state.last_frame is not None:
+                    try:
+                        os.makedirs("results", exist_ok=True)
+                        filename = f"results/detection_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+                        cv2.imwrite(filename, st.session_state.last_frame)
+                        st.success(f"✅ Disimpan: {filename}")
+                    except Exception as e:
+                        st.error(f"❌ Gagal menyimpan: {e}")
         
-        with col_btn1:
-            if st.button("📸 Screenshot", use_container_width=True):
-                if st.session_state.frame_terakhir is not None:
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    os.makedirs("results", exist_ok=True)
-                    filename = f"results/screenshot_{timestamp}.jpg"
-                    cv2.imwrite(filename, st.session_state.frame_terakhir)
-                    
-                    # Display screenshot
-                    img_rgb = cv2.cvtColor(st.session_state.frame_terakhir, cv2.COLOR_BGR2RGB)
-                    st.image(img_rgb, caption="Screenshot berhasil diambil", use_column_width=True)
-                    st.success(f"Screenshot disimpan: {filename}")
+        with col2:
+            if st.button("🔄 Reset", key="reset_result"):
+                st.session_state.hasil_deteksi = None
+                st.session_state.last_frame = None
+                st.experimental_rerun()
+
+else:
+    with hasil_placeholder.container():
+        st.info("🎯 Arahkan benang ke dalam kotak hijau untuk memulai deteksi...")
         
-        with col_btn2:
-            if st.button("💾 Simpan Hasil", use_container_width=True):
-                if st.session_state.frame_terakhir is not None:
-                    filepath = detector.save_detection_result(
-                        st.session_state.frame_terakhir,
-                        hasil["nama"],
-                        hasil["kode"],
-                        hasil["rgb"],
-                        hasil["confidence"]
-                    )
-                    st.success(f"Hasil disimpan: {filepath}")
-    
-    else:
-        st.info("⏳ Menunggu deteksi warna...")
-        st.markdown("""
-        <div class="info-box">
-            <h4>📋 Petunjuk Penggunaan:</h4>
-            <ul>
-                <li>Pastikan webcam aktif</li>
-                <li>Letakkan benang di area hijau</li>
-                <li>Tunggu hingga warna terdeteksi</li>
-                <li>Gunakan sidebar untuk mengatur area dan filter</li>
-            </ul>
-        </div>
-        """, unsafe_allow_html=True)
-
-# Detection history
-if st.session_state.detection_history:
-    st.subheader("📈 Riwayat Deteksi")
-    
-    # Show last 5 detections
-    with st.expander("Lihat Riwayat", expanded=False):
-        for i, detection in enumerate(reversed(st.session_state.detection_history[-5:])):
-            with st.container():
-                col_hist1, col_hist2, col_hist3 = st.columns([1, 2, 1])
-                
-                with col_hist1:
-                    rgb_str = f"rgb({detection['rgb'][0]}, {detection['rgb'][1]}, {detection['rgb'][2]})"
-                    st.markdown(f"""
-                    <div style="background-color: {rgb_str}; height: 40px; border-radius: 5px; border: 1px solid #000;"></div>
-                    """, unsafe_allow_html=True)
-                
-                with col_hist2:
-                    st.write(f"**{detection['nama']}**")
-                    st.write(f"Confidence: {detection['confidence']:.1f}%")
-                
-                with col_hist3:
-                    if 'timestamp' in detection:
-                        st.write(detection['timestamp'].strftime('%H:%M:%S'))
-                
-                st.divider()
-
-# Statistics
-st.subheader("📊 Statistik")
-col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-
-with col_stat1:
-    st.metric("Total Warna DB", len(detector.color_db))
-
-with col_stat2:
-    st.metric("Deteksi Hari Ini", len(st.session_state.detection_history))
-
-with col_stat3:
-    if hasil and hasil["rgb"] is not None:
-        st.metric("Confidence Saat Ini", f"{hasil['confidence']:.1f}%")
-    else:
-        st.metric("Confidence Saat Ini", "0%")
-
-with col_stat4:
-    area = st.session_state.sampling_area
-    st.metric("Area Sampling", f"{area['width']}×{area['height']}")
+        # Status debugging
+        if st.checkbox("Show Debug Info"):
+            st.write("**Debug Information:**")
+            st.write(f"- Detector loaded: {detector is not None}")
+            st.write(f"- Color database size: {len(detector.color_db) if detector else 0}")
+            st.write(f"- Sample area: {detector.sample_area if detector else 'N/A'}")
+            st.write(f"- WebRTC context: {ctx.state if 'ctx' in locals() else 'N/A'}")
 
 # Footer
 st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: #666; padding: 20px;">
-    <p>🎨 Yarn Color Detector with CIELAB Technology</p>
-    <p>Menggunakan computer vision dan database warna lengkap untuk deteksi warna benang yang akurat</p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown("🎨 **Yarn Color Detector** - Deteksi warna benang secara real-time")
