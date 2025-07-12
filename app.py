@@ -88,11 +88,11 @@ class VideoProcessor(VideoProcessorBase):
             height = min(area['height'], h - y)
             
             # Gambar kotak hijau untuk area sampling
-            cv2.rectangle(img, (x, y), (x + width, y + height), (0, 255, 0), 2)
+            cv2.rectangle(img, (x, y), (x + width, y + height), (0, 0, 0), 2)
             
             # Tambahkan text info
             cv2.putText(img, "Area Deteksi", (x, y-10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
             
             # Tampilkan hasil deteksi di video jika ada
             if st.session_state.hasil_deteksi:
@@ -119,9 +119,8 @@ class VideoProcessor(VideoProcessorBase):
 st.markdown("""
 ### Instruksi Penggunaan:
 1. **Klik tombol "START"** untuk memulai kamera
-2. **Arahkan benang** ke dalam kotak hijau di layar
+2. **Arahkan benang** ke dalam kotak di layar
 3. **Tunggu beberapa detik** untuk hasil deteksi muncul
-4. **Hasil akan tampil** di bagian bawah secara otomatis
 
 ---
 """)
@@ -158,7 +157,7 @@ with col2:
         detector.saturation_min = st.slider("Saturation Min", 0, 100, detector.saturation_min)
 
 # Hasil deteksi
-st.header("📊 Hasil Deteksi")
+st.header("Hasil Deteksi")
 
 # Placeholder untuk hasil
 hasil_placeholder = st.empty()
@@ -298,7 +297,7 @@ if st.session_state.hasil_deteksi:
                         st.error(f"❌ Gagal menyimpan: {e}")
         
         with col2:
-            if st.button("📋 Copy Info", key="copy_info"):
+            if st.button(" Copy Info", key="copy_info"):
                 info_text = f"Warna: {hasil['nama']}\nKode: {hasil['kode']}\nRGB: ({rgb[0]}, {rgb[1]}, {rgb[2]})\n"
                 if analysis and 'hex' in analysis:
                     info_text += f"HEX: {analysis['hex']}\n"
@@ -308,7 +307,7 @@ if st.session_state.hasil_deteksi:
                 info_text += f"Confidence: {hasil['confidence']:.1f}%"
                 
                 st.code(info_text, language="text")
-                st.success("📋 Info siap di-copy!")
+                st.success("📋Info siap di-copy!")
         
         with col3:
             if st.button("🔄 Reset", key="reset_result"):
@@ -318,7 +317,7 @@ if st.session_state.hasil_deteksi:
 
 else:
     with hasil_placeholder.container():
-        st.info("🎯 Arahkan benang ke dalam kotak hijau untuk memulai deteksi...")
+        st.info("Arahkan benang ke dalam kotak hijau untuk memulai deteksi...")
         
         # Status debugging
         if st.checkbox("Show Debug Info"):
@@ -330,4 +329,4 @@ else:
 
 # Footer
 st.markdown("---")
-st.markdown("🎨 **Yarn Color Detector** - Deteksi warna benang secara real-time dengan analisis lengkap")
+st.markdown("**Yarn Color Detector** - Deteksi warna benang secara real-time")
