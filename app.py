@@ -323,11 +323,11 @@ class VideoProcessor(VideoProcessorBase):
             y = (h - height) // 2
             
             # Gambar kotak hijau untuk area sampling
-            cv2.rectangle(img, (x, y), (x + width, y + height), (0, 255, 0), 2)
+            cv2.rectangle(img, (x, y), (x + width, y + height), (0, 0, 0), 2)
             
             # Tambahkan text info
             cv2.putText(img, "Area Deteksi", (x, y-10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
             
             # Tampilkan hasil deteksi di video jika ada
             if st.session_state.hasil_deteksi:
@@ -473,11 +473,11 @@ with tab2:
                 y = (h - height) // 2
                 
                 # Gambar kotak hijau untuk area sampling
-                cv2.rectangle(img_with_area, (x, y), (x + width, y + height), (0, 255, 0), 3)
+                cv2.rectangle(img_with_area, (x, y), (x + width, y + height), (0, 0, 0), 3)
                 
                 # Tambahkan text info
                 cv2.putText(img_with_area, "Area Deteksi", (x, y-10), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
                 
                 # Konversi BGR ke RGB untuk tampilan
                 img_rgb = cv2.cvtColor(img_with_area, cv2.COLOR_BGR2RGB)
