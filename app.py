@@ -11,7 +11,7 @@ from PIL import Image
 import io
 
 st.set_page_config(page_title="Deteksi Warna Benang", layout="wide")
-st.title("🎨 Deteksi Warna Benang Sederhana")
+st.title(" Deteksi Warna Benang Sederhana")
 
 # Konfigurasi WebRTC
 RTC_CONFIGURATION = RTCConfiguration({
@@ -121,20 +121,20 @@ def display_detection_results(hasil, analysis, rgb, is_upload=False):
     col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
     
     with col1:
-        st.markdown("### 🎯 Identifikasi")
+        st.markdown("### Identifikasi")
         st.metric("Nama Warna", hasil['nama'])
         st.metric("Confidence", f"{hasil['confidence']:.1f}%")
         st.metric("Waktu Deteksi", hasil['waktu'])
     
     with col2:
-        st.markdown("### 🔢 Kode & RGB")
+        st.markdown("### Kode & RGB")
         st.metric("Kode Warna", hasil['kode'])
         st.write(f"**RGB:** {rgb[0]}, {rgb[1]}, {rgb[2]}")
         if analysis and 'hex' in analysis:
             st.write(f"**HEX:** {analysis['hex']}")
     
     with col3:
-        st.markdown("### 🌈 CIELAB")
+        st.markdown("### CIELAB")
         if analysis and 'lab' in analysis:
             lab = analysis['lab']
             st.write(f"**L*:** {lab[0]:.1f}")
@@ -149,7 +149,7 @@ def display_detection_results(hasil, analysis, rgb, is_upload=False):
             st.write(f"**HSV:** {hsv[0]}, {hsv[1]}, {hsv[2]}")
     
     with col4:
-        st.markdown("### 🎨 Preview")
+        st.markdown("### Preview")
         # Tampilkan warna
         st.markdown(f"""
         <div style='
@@ -172,7 +172,7 @@ def display_detection_results(hasil, analysis, rgb, is_upload=False):
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            st.markdown("#### 📋 Spesifikasi Warna")
+            st.markdown("#### Spesifikasi Warna")
             st.write(f"**Nama:** {hasil['nama']}")
             st.write(f"**Kode:** {hasil['kode']}")
             st.write(f"**RGB:** ({rgb[0]}, {rgb[1]}, {rgb[2]})")
@@ -186,7 +186,7 @@ def display_detection_results(hasil, analysis, rgb, is_upload=False):
                 st.write(f"**HSV:** H={hsv[0]}, S={hsv[1]}, V={hsv[2]}")
         
         with col2:
-            st.markdown("#### 🎭 Warna Serupa")
+            st.markdown("#### Warna Serupa")
             if analysis and 'similar_colors' in analysis:
                 similar = analysis['similar_colors'][:3]  # Ambil 3 teratas
                 if similar:
@@ -202,7 +202,7 @@ def display_detection_results(hasil, analysis, rgb, is_upload=False):
     
     with col1:
         save_key = "save_result_upload" if is_upload else "save_result"
-        if st.button("💾 Simpan Hasil", key=save_key):
+        if st.button(" Simpan Hasil", key=save_key):
             image_to_save = st.session_state.uploaded_image if is_upload else st.session_state.last_frame
             if image_to_save is not None:
                 try:
@@ -250,7 +250,7 @@ def display_detection_results(hasil, analysis, rgb, is_upload=False):
     
     with col2:
         copy_key = "copy_info_upload" if is_upload else "copy_info"
-        if st.button("📋 Copy Info", key=copy_key):
+        if st.button("Copy Info", key=copy_key):
             info_text = f"Warna: {hasil['nama']}\nKode: {hasil['kode']}\nRGB: ({rgb[0]}, {rgb[1]}, {rgb[2]})\n"
             if analysis and 'hex' in analysis:
                 info_text += f"HEX: {analysis['hex']}\n"
@@ -260,7 +260,7 @@ def display_detection_results(hasil, analysis, rgb, is_upload=False):
             info_text += f"Confidence: {hasil['confidence']:.1f}%"
             
             st.code(info_text, language="text")
-            st.success("📋Info siap di-copy!")
+            st.success("Info siap di-copy!")
     
     with col3:
         reset_key = "reset_result_upload" if is_upload else "reset_result"
@@ -361,7 +361,7 @@ st.markdown("""
 """)
 
 # Tabs untuk memisahkan fitur
-tab1, tab2 = st.tabs(["📹 Kamera Real-time", "📁 Upload Gambar"])
+tab1, tab2 = st.tabs([" Kamera Real-time", " Upload Gambar"])
 
 with tab1:
     # Kolom untuk layout kamera
@@ -395,7 +395,7 @@ with tab1:
             detector.saturation_min = st.slider("Saturation Min", 0, 100, detector.saturation_min)
     
     # Hasil deteksi kamera
-    st.header("📊 Hasil Deteksi Kamera")
+    st.header(" Hasil Deteksi Kamera")
     
     # Placeholder untuk hasil kamera
     hasil_placeholder = st.empty()
@@ -436,7 +436,7 @@ with tab2:
         col1, col2 = st.columns([1, 1])
         
         with col1:
-            st.subheader("🖼️ Gambar Asli")
+            st.subheader(" Gambar Asli")
             
             # Tampilkan gambar
             image = Image.open(uploaded_file)
@@ -456,7 +456,7 @@ with tab2:
                         st.rerun()
         
         with col2:
-            st.subheader("🎨 Gambar dengan Area Deteksi")
+            st.subheader(" Gambar dengan Area Deteksi")
             
             if st.session_state.uploaded_image is not None:
                 # Tampilkan gambar dengan area sampling
@@ -486,7 +486,7 @@ with tab2:
                 st.info("Klik tombol 'Deteksi Warna' untuk memproses gambar")
     
     # Hasil deteksi upload
-    st.header("📊 Hasil Deteksi Upload")
+    st.header(" Hasil Deteksi Upload")
     
     if st.session_state.hasil_deteksi_upload:
         hasil = st.session_state.hasil_deteksi_upload
